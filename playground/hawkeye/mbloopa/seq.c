@@ -31,6 +31,7 @@
 #include "hardware.h"
 #include "seq.h"
 #include "mid_file.h"
+#include "screen.h"
 #include "voxelspace.h"
 
 
@@ -423,6 +424,9 @@ s32 SEQ_PlayFile(char *midifile)
   if( !SEQ_PauseEnabled() )
     SEQ_BPM_Start();
 
+  strcpy(screenMode, "Play");
+  strcpy(screenFile , midifile);
+
   return 0; // no error
 }
 
@@ -524,6 +528,9 @@ s32 SEQ_PauseEnabled(void)
 static void SEQ_UpdateBeatLEDs(u32 bpm_tick)
 {
    static u8 lastLEDstate = 255;
+
+   screenPosStep = bpm_tick / (SEQ_BPM_PPQN_Get() / 16);
+   screenPosBar = screenPosStep / 16;
 
    u8 beatled = (bpm_tick / (SEQ_BPM_PPQN_Get() / 4)) % 4;
 
@@ -850,33 +857,40 @@ static s32 Hook_MIDI_SendPackage(mios32_midi_port_t port, mios32_midi_package_t 
 /////////////////////////////////////////////////////////////////////////////
 s32 SEQ_PlayStopButton(void)
 {
-  if( SEQ_BPM_IsRunning() ) {
-    SEQ_BPM_Stop();          // stop sequencer
-    SEQ_SetPauseMode(1);
-    MID_FILE_SetRecordMode(0);
-  } else {
-    if( SEQ_PauseEnabled() ) {
-      // continue sequencer
-      SEQ_SetPauseMode(0);
-      SEQ_BPM_Cont();
-    } else {
-      MUTEX_SDCARD_TAKE;
+  if( SEQ_BPM_IsRunning() )
+  {
+     SEQ_BPM_Stop();          // stop sequencer
+     SEQ_SetPauseMode(1);
+     MID_FILE_SetRecordMode(0);
 
-      // if in auto mode and BPM generator is clocked in slave mode:
-      // change to master mode
-      SEQ_BPM_CheckAutoMaster();
-
-      // request to play currently selected file
-      SEQ_PlayFileReq(0, 1);
-
-      // reset sequencer
-      SEQ_Reset(1);
-
-      // start sequencer
-      SEQ_BPM_Start();
-
-      MUTEX_SDCARD_GIVE;
+     strcpy(screenMode, "Pause");
+  } else
+  {
+     if( SEQ_PauseEnabled() )
+     {
+        // continue sequencer
+        SEQ_SetPauseMode(0);
+        SEQ_BPM_Cont();
     }
+     else
+     {
+        MUTEX_SDCARD_TAKE;
+
+        // if in auto mode and BPM generator is clocked in slave mode:
+        // change to master mode
+        SEQ_BPM_CheckAutoMaster();
+
+        // request to play currently selected file
+        SEQ_PlayFileReq(0, 1);
+
+        // reset sequencer
+        SEQ_Reset(1);
+
+        // start sequencer
+        SEQ_BPM_Start();
+
+        MUTEX_SDCARD_GIVE;
+     }
   }
 
   return 0; // no error
@@ -888,25 +902,31 @@ s32 SEQ_PlayStopButton(void)
 /////////////////////////////////////////////////////////////////////////////
 s32 SEQ_RecStopButton(void)
 {
-  if( SEQ_BPM_IsRunning() ) {
-    SEQ_BPM_Stop();          // stop sequencer
-    SEQ_SetPauseMode(1);
-    MID_FILE_SetRecordMode(0);
-  } else {
-    SEQ_SetPauseMode(0);
+  if( SEQ_BPM_IsRunning() )
+  {
+     SEQ_BPM_Stop();          // stop sequencer
+     SEQ_SetPauseMode(1);
+     MID_FILE_SetRecordMode(0);
 
-    // if in auto mode and BPM generator is clocked in slave mode:
-    // change to master mode
-    SEQ_BPM_CheckAutoMaster();
+        strcpy(screenMode, "RecPause");
+  }
+  else
+  {
+     strcpy(screenMode, "Rec");
+     SEQ_SetPauseMode(0);
 
-    // enter record mode
-    if( MID_FILE_SetRecordMode(1) >= 0 ) {
-      // reset sequencer
-      SEQ_Reset(1);
+     // if in auto mode and BPM generator is clocked in slave mode:
+     // change to master mode
+     SEQ_BPM_CheckAutoMaster();
 
-      // start sequencer
-      SEQ_BPM_Start();
-    }
+     // enter record mode
+     if( MID_FILE_SetRecordMode(1) >= 0 ) {
+        // reset sequencer
+        SEQ_Reset(1);
+
+        // start sequencer
+        SEQ_BPM_Start();
+     }
   }
 
   return 0; // no error

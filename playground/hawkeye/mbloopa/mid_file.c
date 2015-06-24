@@ -26,6 +26,7 @@
 #include "file.h"
 #include "mid_file.h"
 #include "seq.h"
+#include "screen.h"
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -561,6 +562,8 @@ s32 MID_FILE_SetRecordMode(u8 enable)
       }
       else
       {
+         strcpy(screenMode, "REC");
+         strcpy(screenFile, record_filename);
          DEBUG_MSG("[MID_FILE] Recording to '%s' started\n", record_filename);
          // write file header
          u32 header_size = 6;
