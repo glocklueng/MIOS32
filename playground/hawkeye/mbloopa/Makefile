@@ -20,8 +20,10 @@ LCD       =     ssd1322
 THUMB_SOURCE    = app.c \
 	hardware.c \
 	mid_file.c \
+	mid_parser.c \
 	seq.c \
 	terminal.c \
+	loopa.c \
 	screen.c \
 	voxelspace.c
 
@@ -46,7 +48,8 @@ PROJECT   = 	project
 DEBUG     =	-g
 OPTIMIZE  =	-Os
 
-CFLAGS =	$(DEBUG) $(OPTIMIZE) -DSEQ_MIDI_OUT_MALLOC_METHOD=4
+CFLAGS =	$(DEBUG) $(OPTIMIZE)
+#-DSEQ_MIDI_OUT_MALLOC_METHOD=4 -DDEBUG_VERBOSE_LEVEL=3 
 
 
 ################################################################################
@@ -79,9 +82,6 @@ include $(MIOS32_PATH)/modules/file/file.mk
 
 # generic sequencer modules
 include $(MIOS32_PATH)/modules/sequencer/sequencer.mk
-
-# MIDI file Player
-include $(MIOS32_PATH)/modules/midifile/midifile.mk
 
 # USB Mass Storage Device Driver
 include $(MIOS32_PATH)/modules/msd/msd.mk

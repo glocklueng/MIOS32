@@ -7,14 +7,12 @@
  *  Copyright (C) 2011 Thorsten Klose (tk@midibox.org)
  *  Licensed for personal non-commercial use only.
  *  All other rights reserved.
- * 
+ *
  * ==========================================================================
  */
 
 #ifndef _TASKS_H
 #define _TASKS_H
-
-
 
 #ifndef MIOS32_FAMILY_EMULATION
 # include <FreeRTOS.h>

@@ -38,7 +38,7 @@
 /////////////////////////////////////////////////////////////////////////////
 // for optional debugging messages via MIDI
 /////////////////////////////////////////////////////////////////////////////
-#define DEBUG_VERBOSE_LEVEL 2
+#define DEBUG_VERBOSE_LEVEL 1
 #define DEBUG_MSG MIOS32_MIDI_SendDebugMessage
 
 
@@ -133,7 +133,6 @@ s32 SEQ_Init(u32 mode)
   MID_PARSER_Init(0);
 
   // install callback functions
-  MID_PARSER_InstallFileCallbacks(&MID_FILE_read, &MID_FILE_eof, &MID_FILE_seek);
   MID_PARSER_InstallEventCallbacks(&SEQ_PlayEvent, &SEQ_PlayMeta);
 
   // reset sequencer
@@ -158,23 +157,26 @@ s32 SEQ_Init(u32 mode)
 /////////////////////////////////////////////////////////////////////////////
 u8 SEQ_ClockModeGet(void)
 {
-  if( seq_clk_locked )
-    return 3;
+  if (seq_clk_locked)
+     return 3;
 
   return SEQ_BPM_ModeGet();
 }
 
 s32 SEQ_ClockModeSet(u8 mode)
 {
-  if( mode > 3 )
-    return -1; // invalid mode
+  if (mode > 3)
+     return -1; // invalid mode
 
-  if( mode == 3 ) {
-    SEQ_BPM_ModeSet(SEQ_BPM_MODE_Master);
-    seq_clk_locked = 1;
-  } else {
-    SEQ_BPM_ModeSet(mode);
-    seq_clk_locked = 0;
+  if( mode == 3 )
+  {
+     SEQ_BPM_ModeSet(SEQ_BPM_MODE_Master);
+     seq_clk_locked = 1;
+  }
+  else
+  {
+     SEQ_BPM_ModeSet(mode);
+     seq_clk_locked = 0;
   }
 
   return 0; // no error
@@ -347,49 +349,48 @@ s32 SEQ_Reset(u8 play_off_events)
 /////////////////////////////////////////////////////////////////////////////
 static s32 SEQ_SongPos(u16 new_song_pos)
 {
-  if( MID_FILE_RecordingEnabled() )
-    return 0; // nothing to do
+   if( MID_FILE_RecordingEnabled() )
+      return 0; // nothing to do
 
-  u32 new_tick = new_song_pos * (SEQ_BPM_PPQN_Get() / 4);
+   u32 new_tick = new_song_pos * (SEQ_BPM_PPQN_Get() / 4);
 
-  portENTER_CRITICAL();
+   portENTER_CRITICAL();
 
-  // set new tick value
-  SEQ_BPM_TickSet(new_tick);
+   // set new tick value
+   SEQ_BPM_TickSet(new_tick);
 
-#if DEBUG_VERBOSE_LEVEL >= 2
-  DEBUG_MSG("[SEQ] Setting new song position %u (-> %u ticks)\n", new_song_pos, new_tick);
-#endif
+   DEBUG_MSG("[SEQ] Setting new song position %u (-> %u ticks)\n", new_song_pos, new_tick);
 
-  // since timebase has been changed, ensure that Off-Events are played
-  // (otherwise they will be played much later...)
-  SEQ_PlayOffEvents();
+   // since timebase has been changed, ensure that Off-Events are played
+   // (otherwise they will be played much later...)
+   SEQ_PlayOffEvents();
 
-  // restart song
-  MID_PARSER_RestartSong();
+   // restart song
+   MID_PARSER_RestartSong();
 
-  // release pause
-  u8 pause = SEQ_PauseEnabled();
-  SEQ_SetPauseMode(0);
+   // release pause
+   u8 pause = SEQ_PauseEnabled();
+   SEQ_SetPauseMode(0);
 
-  if( new_song_pos > 1 ) {
-    // (silently) fast forward to requested position
-    ffwd_silent_mode = 1;
-    MID_PARSER_FetchEvents(0, new_tick-1);
-    ffwd_silent_mode = 0;
-  }
+   if( new_song_pos > 1 )
+   {
+      // (silently) fast forward to requested position
+      ffwd_silent_mode = 1;
+      MID_PARSER_FetchEvents(0, new_tick-1);
+      ffwd_silent_mode = 0;
+   }
 
-  // when do we expect the next prefetch:
-  end_of_file = 0;
-  next_prefetch = new_tick;
-  prefetch_offset = new_tick;
+   // when do we expect the next prefetch:
+   end_of_file = 0;
+   next_prefetch = new_tick;
+   prefetch_offset = new_tick;
 
-  // restore pause mode
-  SEQ_SetPauseMode(pause);
+   // restore pause mode
+   SEQ_SetPauseMode(pause);
 
-  portEXIT_CRITICAL();
+   portEXIT_CRITICAL();
 
-  return 0; // no error
+   return 0; // no error
 }
 
 
@@ -398,36 +399,36 @@ static s32 SEQ_SongPos(u16 new_song_pos)
 /////////////////////////////////////////////////////////////////////////////
 s32 SEQ_PlayFile(char *midifile)
 {
-  SEQ_BPM_Stop();                  // stop BPM generator
+   SEQ_BPM_Stop(); // stop BPM generator
 
-  // play off events before loading new file
-  SEQ_PlayOffEvents();
+   // play off events before loading new file
+   SEQ_PlayOffEvents();
 
-  // reset BPM tick (to ensure that next file will start at 0 if we are currently in pause mode)
-  SEQ_BPM_TickSet(0);
-  end_of_file = next_prefetch = prefetch_offset = 0;
+   // reset BPM tick (to ensure that next file will start at 0 if we are currently in pause mode)
+   SEQ_BPM_TickSet(0);
+   end_of_file = next_prefetch = prefetch_offset = 0;
 
-  if( MID_FILE_open(midifile) ) { // try to open next file
-#if DEBUG_VERBOSE_LEVEL >= 1
-    DEBUG_MSG("[SEQ] file %s cannot be opened (wrong directory?)\n", midifile);
-#endif
-    return -1; // file cannot be opened
-  }
-  if( MID_PARSER_Read() < 0 ) { // read file, stop on failure
-#if DEBUG_VERBOSE_LEVEL >= 1
-    DEBUG_MSG("[SEQ] file %s is invalid!\n", midifile);
-#endif
-    return -2; // file is invalid
-  }
+   if (MID_FILE_open(midifile))
+   {
+      // try to open next file
+      DEBUG_MSG("[SEQ] file %s cannot be opened (wrong directory?)\n", midifile);
+      return -1; // file cannot be opened
+   }
+   if (MID_PARSER_Read() < 0)
+   {
+      // read file, stop on failure
+      DEBUG_MSG("[SEQ] file %s is invalid!\n", midifile);
+      return -2; // file is invalid
+   }
 
-  // restart BPM generator if not in pause mode
-  if( !SEQ_PauseEnabled() )
-    SEQ_BPM_Start();
+   // restart BPM generator if not in pause mode
+   if (!SEQ_PauseEnabled())
+      SEQ_BPM_Start();
 
-  strcpy(screenMode, "Play");
-  strcpy(screenFile , midifile);
+   strcpy(screenMode, "Play");
+   strcpy(screenFile , midifile);
 
-  return 0; // no error
+   return 0; // no error
 }
 
 
@@ -442,36 +443,43 @@ s32 SEQ_PlayNextFile(s8 next)
   char next_file[13];
   next_file[0] = 0;
 
-  if( next == 0 && MID_FILE_UI_NameGet()[0] != 0 ) {
-    memcpy(next_file, MID_FILE_UI_NameGet(), 13);
-#if DEBUG_VERBOSE_LEVEL >= 2
-    DEBUG_MSG("[SEQ] play current file '%s'\n", next_file);
-#endif
-  } else if( next < 0 &&
-      (MID_FILE_FindPrev(MID_FILE_UI_NameGet(), next_file) == 1 ||
-       MID_FILE_FindPrev(NULL, next_file) == 1) ) { // if previous file not found, try last file
-#if DEBUG_VERBOSE_LEVEL >= 2
-    DEBUG_MSG("[SEQ] previous file found '%s'\n", next_file);
-#endif
-  } else if( MID_FILE_FindNext(next ? MID_FILE_UI_NameGet() : NULL, next_file) == 1 ||
-      MID_FILE_FindNext(NULL, next_file) == 1 ) { // if next file not found, try first file
-#if DEBUG_VERBOSE_LEVEL >= 2
-    DEBUG_MSG("[SEQ] next file found '%s'\n", next_file);
-#endif
+  // reinstall callback functions
+  MID_PARSER_InstallEventCallbacks(&SEQ_PlayEvent, &SEQ_PlayMeta);
+
+
+  if( next == 0 && MID_FILE_UI_NameGet()[0] != 0 )
+  {
+     memcpy(next_file, MID_FILE_UI_NameGet(), 13);
+     DEBUG_MSG("[SEQ] play current file '%s'\n", next_file);
   }
+  else if (next < 0 &&
+           (MID_FILE_FindPrev(MID_FILE_UI_NameGet(), next_file) == 1 ||
+            MID_FILE_FindPrev(NULL, next_file) == 1))
+  {
+     // if previous file not found, try last file
+     DEBUG_MSG("[SEQ] previous file found '%s'\n", next_file);
+  }
+  else
+     if (MID_FILE_FindNext(next ? MID_FILE_UI_NameGet() : NULL, next_file) == 1 ||
+         MID_FILE_FindNext(NULL, next_file) == 1)
+     {
+        // if next file not found, try first file
+        DEBUG_MSG("[SEQ] next file found '%s'\n", next_file);
+     }
 
-  if( next_file[0] == 0 ) {
-    if( next < 0 )
-      return 0; // ignore silently
+  if( next_file[0] == 0 )
+  {
+     if( next < 0 )
+        return 0; // ignore silently
 
-    SEQ_BPM_Stop();           // stop BPM generator
+     SEQ_BPM_Stop();           // stop BPM generator
 
-#if DEBUG_VERBOSE_LEVEL >= 1
-    DEBUG_MSG("[SEQ] no file found\n");
-#endif
-    return -1; // file not found
-  } else {
-    SEQ_PlayFile(next_file);
+     DEBUG_MSG("[SEQ] no file found\n");
+     return -1; // file not found
+  }
+  else
+  {
+     SEQ_PlayFile(next_file);
   }
 
   return 0; // no error
@@ -488,16 +496,19 @@ s32 SEQ_PlayNextFile(s8 next)
 /////////////////////////////////////////////////////////////////////////////
 s32 SEQ_PlayFileReq(s8 next, u8 force)
 {
-  if( force || !next || midi_play_mode == SEQ_MIDI_PLAY_MODE_ALL ) {
-    // stop generator
-    SEQ_BPM_Stop();
+  if (force || !next || midi_play_mode == SEQ_MIDI_PLAY_MODE_ALL)
+  {
+     // stop generator
+     SEQ_BPM_Stop();
 
-    // request next file
-    next_file_req = next | 0x40; // ensure that next_file is always != 0
-  } else {
-    // play current MIDI file again
-    SEQ_Reset(1);
-    SEQ_SongPos(0);
+     // request next file
+     next_file_req = next | 0x40; // ensure that next_file is always != 0
+  }
+  else
+  {
+     // play current MIDI file again
+     SEQ_Reset(1);
+     SEQ_SongPos(0);
   }
 
   return 0; // no error
@@ -509,8 +520,8 @@ s32 SEQ_PlayFileReq(s8 next, u8 force)
 /////////////////////////////////////////////////////////////////////////////
 s32 SEQ_SetPauseMode(u8 enable)
 {
-  seq_pause = enable;
-  return 0; // no error
+   seq_pause = enable;
+   return 0; // no error
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -518,7 +529,7 @@ s32 SEQ_SetPauseMode(u8 enable)
 /////////////////////////////////////////////////////////////////////////////
 s32 SEQ_PauseEnabled(void)
 {
-  return seq_pause;
+   return seq_pause;
 }
 
 
@@ -570,57 +581,64 @@ static void SEQ_UpdateBeatLEDs(u32 bpm_tick)
 }
 
 
-/////////////////////////////////////////////////////////////////////////////
-// performs a single bpm tick
-/////////////////////////////////////////////////////////////////////////////
+/**
+ * performs a single bpm tick
+ *
+ * idea: MID_FILE has access to all 8 clip files and current MID positions stored
+ *       if a clip is unmuted, ask MID_PARSER to prefetch from respective clip and
+ *       insert into sequencer
+ *
+ */
 static s32 SEQ_Tick(u32 bpm_tick)
 {
-  // send MIDI clock depending on ppqn
-  if( (bpm_tick % (SEQ_BPM_PPQN_Get()/24)) == 0 )
-  {
-     // DEBUG_MSG("Tick %d, SEQ BPM PPQN/24 %d", bpm_tick, SEQ_BPM_PPQN_Get()/24);
-     MIDI_ROUTER_SendMIDIClockEvent(0xf8, bpm_tick);
-  }
+   // send MIDI clock depending on ppqn
+   if( (bpm_tick % (SEQ_BPM_PPQN_Get()/24)) == 0 )
+   {
+      // DEBUG_MSG("Tick %d, SEQ BPM PPQN/24 %d", bpm_tick, SEQ_BPM_PPQN_Get()/24);
+      MIDI_ROUTER_SendMIDIClockEvent(0xf8, bpm_tick);
+   }
 
-  if( !end_of_file && bpm_tick >= next_prefetch )
-  {
-     // get number of prefetch ticks depending on current BPM
-     u32 prefetch_ticks = SEQ_BPM_TicksFor_mS(PREFETCH_TIME_MS);
+   if (!end_of_file && bpm_tick >= next_prefetch)
+   {
+      // get number of prefetch ticks depending on current BPM
+      u32 prefetch_ticks = SEQ_BPM_TicksFor_mS(PREFETCH_TIME_MS);
 
-     if( bpm_tick >= prefetch_offset )
-     {
-        // buffer underrun - fetch more!
-        prefetch_ticks += (bpm_tick - prefetch_offset);
-        next_prefetch = bpm_tick; // ASAP
-     } else if( (prefetch_offset - bpm_tick) < prefetch_ticks )
-     {
-        // close to a buffer underrun - fetch more!
-        prefetch_ticks *= 2;
-        next_prefetch = bpm_tick; // ASAP
-     } else
-     {
-        next_prefetch += prefetch_ticks;
-     }
-
-#if DEBUG_VERBOSE_LEVEL >= 3
-    DEBUG_MSG("[SEQ] Prefetch started at tick %u (prefetching %u..%u)\n", bpm_tick, prefetch_offset, prefetch_offset+prefetch_ticks-1);
-#endif
-
-    if (MID_PARSER_FetchEvents(prefetch_offset, prefetch_ticks) == 0)
-    {
-       end_of_file = 1;
-    }
-    else
-    {
-       prefetch_offset += prefetch_ticks;
-    }
+      if (bpm_tick >= prefetch_offset)
+      {
+         // buffer underrun - fetch more!
+         prefetch_ticks += (bpm_tick - prefetch_offset);
+         next_prefetch = bpm_tick; // ASAP
+      }
+      else if ((prefetch_offset - bpm_tick) < prefetch_ticks)
+      {
+         // close to a buffer underrun - fetch more!
+         prefetch_ticks *= 2;
+         next_prefetch = bpm_tick; // ASAP
+      }
+      else
+      {
+         next_prefetch += prefetch_ticks;
+      }
 
 #if DEBUG_VERBOSE_LEVEL >= 3
-    DEBUG_MSG("[SEQ] Prefetch finished at tick %u\n", SEQ_BPM_TickGet());
+      DEBUG_MSG("[SEQ] Prefetch started at tick %u (prefetching %u..%u)\n", bpm_tick, prefetch_offset, prefetch_offset+prefetch_ticks-1);
 #endif
-  }
 
-  return 0; // no error
+      if (MID_PARSER_FetchEvents(prefetch_offset, prefetch_ticks) == 0)
+      {
+         end_of_file = 1;
+      }
+      else
+      {
+         prefetch_offset += prefetch_ticks;
+      }
+
+#if DEBUG_VERBOSE_LEVEL >= 3
+      DEBUG_MSG("[SEQ] Prefetch finished at tick %u\n", SEQ_BPM_TickGet());
+#endif
+   }
+
+   return 0; // no error
 }
 
 
@@ -631,31 +649,29 @@ static s32 SEQ_Tick(u32 bpm_tick)
 static s32 SEQ_CheckSongFinished(u32 bpm_tick)
 {
   // synchronized switch to next file
-  if( end_of_file &&
-      ((bpm_tick+1) % SEQ_BPM_PPQN_Get()) == 0 ) {
+  if (end_of_file && ((bpm_tick+1) % SEQ_BPM_PPQN_Get()) == 0)
+  {
+     if( midi_play_mode == SEQ_MIDI_PLAY_MODE_SINGLE )
+     {
+        DEBUG_MSG("[SEQ] End of song reached after %u ticks - stopping sequencer!\n", bpm_tick);
 
-    if( midi_play_mode == SEQ_MIDI_PLAY_MODE_SINGLE ) {
-#if DEBUG_VERBOSE_LEVEL >= 2
-      DEBUG_MSG("[SEQ] End of song reached after %u ticks - stopping sequencer!\n", bpm_tick);
-#endif
+        SEQ_BPM_Stop();
+        SEQ_Reset(1);
+        SEQ_SetPauseMode(1);
+     }
+     else if( midi_play_mode == SEQ_MIDI_PLAY_MODE_SINGLE_LOOP )
+     {
+        DEBUG_MSG("[SEQ] End of song reached after %u ticks - restarting song!\n", bpm_tick);
+        SEQ_Reset(1);
+     }
+     else
+     {
+        DEBUG_MSG("[SEQ] End of song reached after %u ticks - loading next file!\n", bpm_tick);
 
-      SEQ_BPM_Stop();
-      SEQ_Reset(1);
-      SEQ_SetPauseMode(1);
-    } else if( midi_play_mode == SEQ_MIDI_PLAY_MODE_SINGLE_LOOP ) {
-#if DEBUG_VERBOSE_LEVEL >= 2
-      DEBUG_MSG("[SEQ] End of song reached after %u ticks - restarting song!\n", bpm_tick);
-#endif
-      SEQ_Reset(1);
-    } else {
-#if DEBUG_VERBOSE_LEVEL >= 2
-      DEBUG_MSG("[SEQ] End of song reached after %u ticks - loading next file!\n", bpm_tick);
-#endif
+        SEQ_PlayFileReq(1, 0);
+     }
 
-      SEQ_PlayFileReq(1, 0);
-    }
-
-    return 1;
+     return 1;
   }
 
   return 0; // no error
@@ -669,29 +685,32 @@ static s32 SEQ_PlayEvent(u8 track, mios32_midi_package_t midi_package, u32 tick)
   // ignore all events in silent mode (for SEQ_SongPos function)
   // we could implement a more intelligent parser, which stores the sent CC/program change, etc...
   // and sends the last received values before restarting the song...
-  if( ffwd_silent_mode )
-    return 0;
+  if (ffwd_silent_mode)
+     return 0;
 
   // In order to support an unlimited SysEx stream length, we pass them as single bytes directly w/o the sequencer!
-  if( midi_package.type == 0xf ) {
-    Hook_MIDI_SendPackage(UART0, midi_package);
-    return 0;
+  if (midi_package.type == 0xf)
+  {
+     Hook_MIDI_SendPackage(UART0, midi_package);
+     return 0;
   }
 
   // Voxelspace note rendering
-  if( midi_package.event == NoteOn && midi_package.velocity > 0)
+  if (midi_package.event == NoteOn && midi_package.velocity > 0)
      voxelNoteOn(midi_package.note, midi_package.velocity);
 
-  if( midi_package.event == NoteOff || (midi_package.event == NoteOn && midi_package.velocity == 0) )
+  if (midi_package.event == NoteOff || (midi_package.event == NoteOn && midi_package.velocity == 0))
      voxelNoteOff(midi_package.note);
 
   seq_midi_out_event_type_t event_type = SEQ_MIDI_OUT_OnEvent;
-  if( midi_package.event == NoteOff || (midi_package.event == NoteOn && midi_package.velocity == 0) )
-    event_type = SEQ_MIDI_OUT_OffEvent;
+  if (midi_package.event == NoteOff || (midi_package.event == NoteOn && midi_package.velocity == 0))
+     event_type = SEQ_MIDI_OUT_OffEvent;
 
   // output events on UART0 port
   u32 status = 0;
   status |= SEQ_MIDI_OUT_Send(UART0, midi_package, event_type, tick, 0);
+
+  /// DEBUG_MSG("in SEQ_PlayEvent");
 
   return status;
 }
@@ -702,18 +721,22 @@ static s32 SEQ_PlayEvent(u8 track, mios32_midi_package_t midi_package, u32 tick)
 /////////////////////////////////////////////////////////////////////////////
 static s32 SEQ_PlayMeta(u8 track, u8 meta, u32 len, u8 *buffer, u32 tick)
 {
-  switch( meta ) {
-    case 0x00: // Sequence Number
-      if( len == 2 ) {
-   u32 seq_number = (buffer[0] << 8) | buffer[1];
+  switch (meta)
+  {
+  case 0x00: // Sequence Number
+     if (len == 2)
+     {
+        u32 seq_number = (buffer[0] << 8) | buffer[1];
 #if DEBUG_VERBOSE_LEVEL >= 2
-   DEBUG_MSG("[SEQ:%d:%u] Meta - Sequence Number %u\n", track, tick, seq_number);
+        DEBUG_MSG("[SEQ:%d:%u] Meta - Sequence Number %u\n", track, tick, seq_number);
 #endif
-      } else {
+     }
+     else
+     {
 #if DEBUG_VERBOSE_LEVEL >= 2
-   DEBUG_MSG("[SEQ:%d:%u] Meta - Sequence Number with %d bytes -- ERROR: expecting 2 bytes!\n", track, tick, len);
+        DEBUG_MSG("[SEQ:%d:%u] Meta - Sequence Number with %d bytes -- ERROR: expecting 2 bytes!\n", track, tick, len);
 #endif
-      }
+     }
       break;
 
     case 0x01: // Text Event
@@ -864,14 +887,15 @@ s32 SEQ_PlayStopButton(void)
      MID_FILE_SetRecordMode(0);
 
      strcpy(screenMode, "Pause");
-  } else
+  }
+  else
   {
-     if( SEQ_PauseEnabled() )
+     if (SEQ_PauseEnabled())
      {
         // continue sequencer
         SEQ_SetPauseMode(0);
         SEQ_BPM_Cont();
-    }
+     }
      else
      {
         MUTEX_SDCARD_TAKE;

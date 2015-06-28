@@ -35,11 +35,13 @@
 #include "seq.h"
 #include "mid_file.h"
 
+#include "loopa.h"
 #include "terminal.h"
 #include "voxelspace.h"
 
 
-#define DEBUG_MSG MIOS32_MIDI_SendDebugMessage
+// #define DEBUG_MSG MIOS32_MIDI_SendDebugMessage
+
 
 // define priority level for sequencer
 // use same priority as MIOS32 specific tasks
@@ -123,7 +125,6 @@ void APP_Init(void)
   xMIDIINSemaphore = xSemaphoreCreateRecursiveMutex();
   xMIDIOUTSemaphore = xSemaphoreCreateRecursiveMutex();
 
-
   // install SysEx callback
   MIOS32_MIDI_SysExCallback_Init(APP_SYSEX_Parser);
 
@@ -137,23 +138,13 @@ void APP_Init(void)
   // initialize code modules
   MIDI_PORT_Init(0);
   MIDI_ROUTER_Init(0);
-//  UIP_TASK_Init(0);
   TERMINAL_Init(0);
   MIDIMON_Init(0);
-//  MIDIO_FILE_Init(0);
   FILE_Init(0);
   SEQ_MIDI_OUT_Init(0);
   SEQ_Init(0);
 
-
-  // Turn on LEDs for testing
-  /*int pin;
-  for (pin=0; pin<16; pin++)
-     MIOS32_DOUT_PinSet(pin, 1);
-  */
-
-
-  // Install two encoders (on shift register 1)
+  // install two encoders (on shift register 1)
   mios32_enc_config_t enc_config = MIOS32_ENC_ConfigGet(0);
   enc_config.cfg.type = DETENTED3;
   enc_config.cfg.sr = 1;
@@ -170,14 +161,15 @@ void APP_Init(void)
   enc_config.cfg.speed_par = 0;
   MIOS32_ENC_ConfigSet(1, enc_config);
 
-
-  // Precalc Voxel variables
+  // precalc voxel variables
   calcField();
 
   // start tasks
   xTaskCreate(TASK_Period_1mS, (signed portCHAR *)"1mS", configMINIMAL_STACK_SIZE, NULL, PRIORITY_TASK_PERIOD_1mS, NULL);
   xTaskCreate(TASK_Period_1mS_LP, (signed portCHAR *)"1mS_LP", 2*configMINIMAL_STACK_SIZE, NULL, PRIORITY_TASK_PERIOD_1mS_LP, NULL);
   xTaskCreate(TASK_Period_1mS_SD, (signed portCHAR *)"1mS_SD", 2*configMINIMAL_STACK_SIZE, NULL, PRIORITY_TASK_PERIOD_1mS_SD, NULL);
+
+  loopaStartup();
 }
 
 
@@ -186,10 +178,6 @@ void APP_Init(void)
 /////////////////////////////////////////////////////////////////////////////
 void APP_Background(void)
 {
-  // runVoxel();
-
-  // Alternative: "Test screen for parameter tuning"
-  // testScreen();
 }
 
 
@@ -274,52 +262,9 @@ void APP_SRIO_ServiceFinish(void)
 void APP_DIN_NotifyToggle(u32 pin, u32 pin_value)
 {
    MIOS32_MIDI_SendDebugMessage("PIN %d toggled - value %d", pin, pin_value);
-   // calcField();
 
-   if (pin == sw_playstop && pin_value == 0)
-   {
-      voxelClearNotes();
-      MIOS32_MIDI_SendDebugMessage("Play\n");
-      SEQ_PlayStopButton();
-      MIOS32_DOUT_PinSet(led_playstop, 1);
-      MIOS32_DOUT_PinSet(led_viewclip, 0);
-   }
-
-   if (pin == sw_viewclip && pin_value == 0)
-   {
-      voxelClearNotes();
-      voxelClearField();
-      MIOS32_MIDI_SendDebugMessage("Record\n");
-      SEQ_RecStopButton();
-      MIOS32_DOUT_PinSet(led_playstop, 0);
-      MIOS32_DOUT_PinSet(led_viewclip, 1);
-   }
-
-   if (pin == sw_menu)
-   {
-      MIOS32_DOUT_PinSet(led_menu, pin_value);
-
-      if (pin_value == 0)
-      {
-         voxelClearNotes();
-         voxelClearField();
-         MIOS32_MIDI_SendDebugMessage("Play Previous\n");
-         SEQ_PlayNextFile(-1);
-      }
-   }
-
-   if (pin == sw_gp)
-   {
-      MIOS32_DOUT_PinSet(led_gp, pin_value);
-
-      if (pin_value == 0)
-      {
-         voxelClearNotes();
-         voxelClearField();
-         MIOS32_MIDI_SendDebugMessage("Play Next\n");
-         SEQ_PlayNextFile(1);
-      }
-   }
+   if (pin_value == 0)
+      loopaButtonPressed(pin);
 }
 
 
@@ -332,24 +277,8 @@ void APP_ENC_NotifyChange(u32 encoder, s32 incrementer)
 {
   MIOS32_MIDI_SendDebugMessage("Encoder %d turned - increment %d", encoder, incrementer);
 
-  static int pin = 0;
+  loopaEncoderTurned(encoder, incrementer);
 
-  if (encoder == 0)
-  {
-     pin+=incrementer;
-     pin%=16;
-
-     int i=0;
-     for (i=0; i<16; i++)
-        MIOS32_DOUT_PinSet(i, 0);
-
-     DEBUG_MSG("Enabling LED %d", pin);
-
-     MIOS32_DOUT_PinSet(pin, 1);
-  }
-
-  /*if (encoder == 1)
-    tempEncoderAccel -= incrementer;*/
 }
 
 
@@ -410,7 +339,7 @@ static void TASK_Period_1mS_SD(void *pvParameters)
        MUTEX_SDCARD_TAKE;
        s32 status = FILE_CheckSDCard();
 
-       if( status == 1 )
+       if (status == 1)
        {
           DEBUG_MSG("SD Card connected: %s\n", FILE_VolumeLabel());
 
@@ -422,7 +351,8 @@ static void TASK_Period_1mS_SD(void *pvParameters)
 
           // immediately go to next step
           sdcard_check_ctr = sdcard_check_delay;
-       } else if( status == 2 )
+       }
+       else if (status == 2)
        {
           DEBUG_MSG("SD Card disconnected\n");
           // invalidate all file infos
@@ -433,20 +363,24 @@ static void TASK_Period_1mS_SD(void *pvParameters)
 
           // change status
           /// MIDIO_FILE_StatusMsgSet("No SD Card");
-       } else if( status == 3 )
+       }
+       else if (status == 3)
        {
-          if( !FILE_SDCardAvailable() )
+          if (!FILE_SDCardAvailable())
           {
              DEBUG_MSG("SD Card not found\n");
              /// MIDIO_FILE_StatusMsgSet("No SD Card");
-          } else if( !FILE_VolumeAvailable() )
+          }
+          else if (!FILE_VolumeAvailable())
           {
              DEBUG_MSG("ERROR: SD Card contains invalid FAT!\n");
              /// MIDIO_FILE_StatusMsgSet("No FAT");
-          } else
+          }
+          else
           {
              // create the default files if they don't exist on SD Card
              /// MIDIO_FILE_CreateDefaultFiles();
+             loopaSDCardAvailable();
 
              // load first MIDI file
              MID_FILE_UI_NameClear();
@@ -584,30 +518,31 @@ static s32 NOTIFY_MIDI_TimeOut(mios32_midi_port_t port)
 /////////////////////////////////////////////////////////////////////////////
 s32 TASK_MSD_EnableSet(u8 enable)
 {
-  MIOS32_IRQ_Disable();
-  if( msd_state == MSD_DISABLED && enable ) {
-    msd_state = MSD_INIT;
-  } else if( msd_state == MSD_READY && !enable )
-    msd_state = MSD_SHUTDOWN;
-  MIOS32_IRQ_Enable();
+   MIOS32_IRQ_Disable();
+   if( msd_state == MSD_DISABLED && enable )
+   {
+      msd_state = MSD_INIT;
+   } else if( msd_state == MSD_READY && !enable )
+      msd_state = MSD_SHUTDOWN;
+   MIOS32_IRQ_Enable();
 
-  return 0; // no error
+   return 0; // no error
 }
 
 s32 TASK_MSD_EnableGet()
 {
-  return (msd_state == MSD_READY) ? 1 : 0;
+   return (msd_state == MSD_READY) ? 1 : 0;
 }
 
 s32 TASK_MSD_FlagStrGet(char str[5])
 {
-  str[0] = MSD_CheckAvailable() ? 'U' : '-';
-  str[1] = MSD_LUN_AvailableGet(0) ? 'M' : '-';
-  str[2] = MSD_RdLEDGet(250) ? 'R' : '-';
-  str[3] = MSD_WrLEDGet(250) ? 'W' : '-';
-  str[4] = 0;
+   str[0] = MSD_CheckAvailable() ? 'U' : '-';
+   str[1] = MSD_LUN_AvailableGet(0) ? 'M' : '-';
+   str[2] = MSD_RdLEDGet(250) ? 'R' : '-';
+   str[3] = MSD_WrLEDGet(250) ? 'W' : '-';
+   str[4] = 0;
 
-  return 0; // no error
+   return 0; // no error
 }
 
 

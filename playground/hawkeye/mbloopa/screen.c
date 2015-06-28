@@ -3,6 +3,7 @@
 #include <mios32.h>
 
 #include <stdarg.h>
+#include <string.h>
 
 #include <glcd_font.h>
 #include <app_lcd.h>
@@ -15,6 +16,8 @@
 // -------------------------------------------------------------------------------------------
 // SSD 1322 Screen routines by Hawkeye
 
+// --- globals ---
+
 u8 screen[64][128];             // Screen buffer [y][x]
 
 char screenMode[16] = "";
@@ -22,30 +25,66 @@ char screenFile[16] = "";
 u16 screenPosBar = 0;
 u16 screenPosStep = 0;
 
-unsigned char* fontptr = (unsigned char*) fontsmall_pixdata;
+u8 screenShowLoopaLogo_;
+u8 screenClipSelected_[8];
+u8 screenClipLooped_[8];
+u16 screenClipStepPosition_[8];
+u16 screenClipStepLength_[8];
 
-/*
-// Set normal font (default)
-//
-void setNormalFont()
+unsigned char* fontptr_ = (unsigned char*) fontsmall_pixdata;
+u16 fontchar_bytewidth_ = 3;    // bytes to copy for a line of character pixel data
+u16 fontchar_height_ = 12;      // lines to copy for a full-height character
+u16 fontline_bytewidth_ = 95*3; // bytes per font pixdata line (character layout all in one line)
+
+
+/**
+ * Set the bold font
+ *
+ */
+void setFontBold()
 {
-   fontptr = (unsigned char*) fontnormal_pixdata;
+   fontptr_ = (unsigned char*) fontbold_pixdata;
+   fontchar_bytewidth_ = 5;
+   fontchar_height_ = 18;
+   fontline_bytewidth_ = 95 * 5;
 }
 // ----------------------------------------------------------------------------------------
 
 
-// Set bold font
-void setBoldFont()
+/**
+ * Set the normal font
+ *
+ */
+void setFontNormal()
 {
-   fontptr = (unsigned char*) fontbold_pixdata;
+   fontptr_ = (unsigned char*) fontnormal_pixdata;
+   fontchar_bytewidth_ = 5;
+   fontchar_height_ = 18;
+   fontline_bytewidth_ = 95 * 5;
 }
 // ----------------------------------------------------------------------------------------
-*/
 
-// Display the given string at the given pixel coordinates
-// output to screen output buffer, the next display() will render it to hardware
-// provides clipping support, coordinates can be offscreen/negative for scrolling fx
-//
+
+/**
+ * Set the small font
+ *
+ */
+void setFontSmall()
+{
+   fontptr_ = (unsigned char*) fontsmall_pixdata;
+   fontchar_bytewidth_ = 3;
+   fontchar_height_ = 12;
+   fontline_bytewidth_ = 95 * 3;
+}
+// ----------------------------------------------------------------------------------------
+
+
+/**
+ * Display the given string at the given pixel coordinates
+ * output to screen output buffer, the next display() will render it to hardware
+ * provides clipping support, coordinates can be offscreen/negative for scrolling fx
+ *
+ */
 void printString(int xPixCoord /* even! */, int yPixCoord, const char *str)
 {
    unsigned stringpos = 0;
@@ -57,21 +96,21 @@ void printString(int xPixCoord /* even! */, int yPixCoord, const char *str)
 
       // in-font coordinates
       unsigned f_y = 0;
-      unsigned f_x = (c-32) * fontchar_bytewidth;
+      unsigned f_x = (c-32) * fontchar_bytewidth_;
 
       // screenbuf target coordinates
       unsigned s_y = yPixCoord;
-      unsigned s_x = xPixCoord / 2 + stringpos * fontchar_bytewidth; // 2 pixels per byte, require even xPixCoord start coordinate
+      unsigned s_x = xPixCoord / 2 + stringpos * fontchar_bytewidth_; // 2 pixels per byte, require even xPixCoord start coordinate
 
-      while (f_y < fontchar_height)
+      while (f_y < fontchar_height_)
       {
          if (s_y >= 0 && s_y < 64) // clip y offscreen
          {
             unsigned char* sdata = (unsigned char*) screen + s_y * 128 + s_x;
-            unsigned char* fdata = (unsigned char*) fontptr + f_y * fontline_bytewidth + f_x;
+            unsigned char* fdata = (unsigned char*) fontptr_ + f_y * fontline_bytewidth_ + f_x;
             unsigned c_s_x = s_x;
 
-            for (x = 0; x <fontchar_bytewidth; x++)
+            for (x = 0; x <fontchar_bytewidth_; x++)
             {
                if (c_s_x >= 0 && c_s_x < 128)
                   if (*fdata)
@@ -93,10 +132,12 @@ void printString(int xPixCoord /* even! */, int yPixCoord, const char *str)
 // ----------------------------------------------------------------------------------------
 
 
-// Display the given formatted string at the given pixel coordinates
-// output to screen output buffer, the next display() will render it to hardware
-// provides clipping support, coordinates can be offscreen/negative for scrolling fx
-//
+/**
+ * Display the given formatted string at the given pixel coordinates
+ * output to screen output buffer, the next display() will render it to hardware
+ * provides clipping support, coordinates can be offscreen/negative for scrolling fx
+ *
+ */
 void printFormattedString(int xPixCoord /* even! */, int yPixCoord, const char* format, ...)
 {
    char buffer[64]; // TODO: tmp!!! Provide a streamed COM method later!
@@ -109,13 +150,171 @@ void printFormattedString(int xPixCoord /* even! */, int yPixCoord, const char* 
 // ----------------------------------------------------------------------------------------
 
 
+
+/**
+ * Display a loopa slot time indicator
+ * Format: [clipPos:clipLength] for a looped track, or
+ *         |clipPos:clipLength| for a oneshot track
+ *         times are in quarternotes
+ *
+ *         the time indicator will be rendered inverted, if this is the selected clip/active clip
+ *         the display position depends on the slot number, slot #0 is upper left, slot #7 is lower right
+ *
+ */
+void displayClipPosition(u8 slotNumber, u8 isSelected, u8 isLooped, u16 stepPos, u16 stepLength)
+{
+   char buffer[16];
+
+   u8 loopStartChar = isLooped ? ':' : '<';
+   u8 loopEndChar = isLooped ? ';' : '=';
+
+   if (stepLength > 999)
+      sprintf((char *)buffer, "%c%04d>%4d%c", loopStartChar, stepPos, stepLength, loopEndChar);
+   else if (stepLength > 99)
+      sprintf((char *)buffer, " %c%03d>%3d%c", loopStartChar, stepPos, stepLength, loopEndChar);
+   else if (stepLength > 9)
+      sprintf((char *)buffer, "  %c%02d>%2d%c", loopStartChar, stepPos, stepLength, loopEndChar);
+
+   u8 xPixCoord = (slotNumber % 4) * 64;
+   u8 yPixCoord = slotNumber < 4 ? 0 : 56;
+   u8 fontHeight = 7;
+   u8 fontByteWidth = 3;
+   u8 fontLineByteWidth = 16*3;
+
+   char *str = buffer;
+   u8 stringpos = 0;
+   while (*str != '\0')
+   {
+      int c = *str++;
+
+      if (c == ' ')  // Map string space to font space
+         c = '/';
+
+      unsigned x;
+
+      // in-font coordinates
+      unsigned f_y = 0;
+      unsigned f_x = (c-47) * fontByteWidth;
+
+      // screenbuf target coordinates
+      unsigned s_y = yPixCoord;
+      unsigned s_x = xPixCoord / 2 + stringpos * fontByteWidth; // 2 pixels per byte, require even xPixCoord start coordinate
+
+      while (f_y < fontHeight)
+      {
+         if (s_y >= 0 && s_y < 64) // clip y offscreen
+         {
+            unsigned char* sdata = (unsigned char*) screen + s_y * 128 + s_x;
+            unsigned char* fdata = (unsigned char*) digitstiny_pixdata + f_y * fontLineByteWidth + f_x;
+            unsigned c_s_x = s_x;
+
+            for (x = 0; x <fontByteWidth; x++)
+            {
+               if (c_s_x >= 0 && c_s_x < 128)
+               {
+                  if (!isSelected)
+                  {
+                     if (*fdata)
+                        *sdata = *fdata;  // inner loop: copy 2 pixels, if onscreen
+                  }
+                  else
+                  {
+                     // "invert" font
+                     u8 first = *fdata >> 4;
+                     u8 second = *fdata % 16;
+
+                     first = 15-first;
+                     second = 15-second;
+                     *sdata = (first << 4) + second;
+                  }
+               }
+
+               c_s_x++;
+               fdata++;
+               sdata++;
+            }
+         }
+
+         f_y++;
+         s_y++;
+      }
+
+      stringpos++;
+   }
+}
+// ----------------------------------------------------------------------------------------
+
+
+/**
+ * If showLogo is true, draw the MBLoopa Logo (usually during unit startup)
+ *
+ */
+void screenShowLoopaLogo(u8 showLogo)
+{
+   screenShowLoopaLogo_ = showLogo;
+}
+// ----------------------------------------------------------------------------------------
+
+
+/**
+ * Set the currently selected clip
+ *
+ */
+void screenSetClipSelected(u8 clipNumber)
+{
+   memset(&screenClipSelected_, 0, sizeof(screenClipSelected_));
+   screenClipSelected_[clipNumber] = 1;
+}
+// ----------------------------------------------------------------------------------------
+
+
+/**
+ * Set, if a clip is looped
+ *
+ */
+void screenSetClipLooped(u8 clipNumber, u8 isLooped)
+{
+   screenClipLooped_[clipNumber] = isLooped;
+}
+// ----------------------------------------------------------------------------------------
+
+
+/**
+ * Set the position info of a clip
+ *
+ */
+void screenSetClipPosition(u8 clipNumber, u8 stepPosition, u8 stepLength)
+{
+   screenClipStepPosition_[clipNumber] = stepPosition;
+   screenClipStepLength_[clipNumber] = stepLength;
+}
+// ----------------------------------------------------------------------------------------
+
+
 // Display the current screen buffer
 //
 void display(void)
 {
    u8 i, j;
 
-   printFormattedString(0, 51, "%s %s %u:%u", screenMode, screenFile, screenPosBar, screenPosStep % 16);
+   if (screenShowLoopaLogo_)
+   {
+      // Startup/initial session loading: Render the MBLoopa Logo
+      setFontBold();
+      printFormattedString(92, 10, "MBLoopA");
+      setFontSmall();
+      printFormattedString(64, 32, "(C) Hawkeye, TK. 2015");
+      printFormattedString(52, 44, "MIDIbox hardware platform");
+   }
+   else
+   {
+      // Render normal operations fonts/menus
+
+      // printFormattedString(0, 51, "%s %s %u:%u", screenMode, screenFile, screenPosBar, screenPosStep % 16);
+
+      for (i = 0; i < 8; i++)
+         displayClipPosition(i, screenClipSelected_[i], screenClipLooped_[i], screenClipStepPosition_[i], screenClipStepLength_[i]);
+   }
 
    // Push screen buffer
    for (j = 0; j < 64; j++)

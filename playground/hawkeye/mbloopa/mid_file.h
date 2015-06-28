@@ -7,7 +7,7 @@
  *  Copyright (C) 2008 Thorsten Klose (tk@midibox.org)
  *  Licensed for personal non-commercial use only.
  *  All other rights reserved.
- * 
+ *
  * ==========================================================================
  */
 
@@ -36,6 +36,7 @@ extern s32 MID_FILE_FindNext(char *filename, char *next_file);
 extern s32 MID_FILE_FindPrev(char *filename, char *prev_file);
 
 extern s32 MID_FILE_open(char *filename);
+extern s32 MID_FILE_close();
 extern u32 MID_FILE_read(void *buffer, u32 len);
 extern s32 MID_FILE_eof(void);
 extern s32 MID_FILE_seek(u32 pos);

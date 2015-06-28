@@ -5,6 +5,7 @@
 #include <glcd_font.h>
 #include <app_lcd.h>
 
+#include <seq_bpm.h>
 #include "screen.h"
 #include "voxelspace.h"
 
@@ -60,27 +61,7 @@ void blur(void)
       }
 
 }
-
-
-// Weighted smoothing of the current landscape
-//
-void blur2(void)
-{
-
-   int k, i, j;
-
-   // Blur
-   for (k=0; k<1; k++)
-      for (i=1; i<127; i++)
-         for (j=1; j<127; j++)
-         {
-            u16 four = field[i-1][j] + field[i+1][j] + field[i][j-1] + field[i][j+1];
-            four = four >> 2;
-            u16 new = ((u16) field[i][j] *80) + ((u16)four * 20) / 100;
-            field[i][j] = new;
-         }
-
-}
+// -------------------------------------------------------------------------------------------
 
 
 // Landscape/heightfield generator
@@ -284,8 +265,8 @@ void voxelNoteOn(u8 note, u8 velocity)
    if (note > 0)
       notedraw[note-1] = limit((vel*80)/100);
 
-   //if (note > 1)
-   //   notedraw[note-2] = limit((vel*60)/100);
+   if (note > 1)
+      notedraw[note-2] = limit((vel*60)/100);
 
    if (note < 127)
       notedraw[note+1] = limit((vel*80)/100);
@@ -310,14 +291,14 @@ void voxelNoteOff(u8 note)
    if (note > 0)
       notedraw[note-1] = 0;
 
-   // if (note > 1)
+   if (note > 1)
       notedraw[note-2] = 0;
 
    if (note < 127)
       notedraw[note+1] = 0;
 
-   // if (note < 126)
-   // notedraw[note+2] = 0;
+   if (note < 126)
+      notedraw[note+2] = 0;
 
 }
 // ----------------------------------------------------------------------------------------
