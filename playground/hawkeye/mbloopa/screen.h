@@ -4,11 +4,6 @@
 
 extern u8 screen[64][128];             // Screen buffer [y][x]
 
-extern char screenMode[16];
-extern char screenFile[16];
-extern u16 screenPosBar;
-extern u16 screenPosStep;
-
 
 // If showLogo is true, draw the MBLoopa Logo (usually during unit startup)
 void screenShowLoopaLogo(u8 showLogo);
@@ -16,11 +11,17 @@ void screenShowLoopaLogo(u8 showLogo);
 // Set the currently selected clip
 void screenSetClipSelected(u8 clipNumber);
 
-// Set, if a clip is looped
-void screenSetClipLooped(u8 clipNumber, u8 isLooped);
+// Set the currently recorded-to clip
+void screenSetClipRecording(u8 clipNumber, u8 recordingActiveFlag);
 
-// Set the position info of a clip
-void screenSetClipPosition(u8 clipNumber, u8 stepPosition, u8 stepLength);
+// Set the length of a clip
+void screenSetClipLength(u8 clipNumber, u16 stepLength);
+
+// Set the position of a clip
+void screenSetClipPosition(u8 clipNumber, u16 stepPosition);
+
+// Set the global song step position (e.g. for displaying the recording-clip step)
+void screenSetSongStep(u32 stepPosition);
 
 // Display the current screen buffer
 void display();

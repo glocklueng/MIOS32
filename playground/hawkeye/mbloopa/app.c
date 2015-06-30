@@ -32,7 +32,7 @@
 
 #include <seq_bpm.h>
 #include <seq_midi_out.h>
-#include "seq.h"
+#include "loopa.h"
 #include "mid_file.h"
 
 #include "loopa.h"
@@ -111,6 +111,7 @@ void APP_Init(void)
 {
   MIOS32_BOARD_LED_Init(0xffffffff); // initialize all LEDs
 
+  MIOS32_MIDI_SendDebugMessage("=============================================================");
   MIOS32_MIDI_SendDebugMessage("Starting MBLoopa");
 
   // enable MSD by default (has to be enabled in SHIFT menu)
@@ -142,7 +143,7 @@ void APP_Init(void)
   MIDIMON_Init(0);
   FILE_Init(0);
   SEQ_MIDI_OUT_Init(0);
-  SEQ_Init(0);
+  seqInit(0);
 
   // install two encoders (on shift register 1)
   mios32_enc_config_t enc_config = MIOS32_ENC_ConfigGet(0);
@@ -381,11 +382,6 @@ static void TASK_Period_1mS_SD(void *pvParameters)
              // create the default files if they don't exist on SD Card
              /// MIDIO_FILE_CreateDefaultFiles();
              loopaSDCardAvailable();
-
-             // load first MIDI file
-             MID_FILE_UI_NameClear();
-             SEQ_SetPauseMode(1);
-             SEQ_PlayFileReq(0, 1);
           }
 
           hw_enabled = 1; // enable hardware after first read...
@@ -461,7 +457,7 @@ static void TASK_Period_1mS(void *pvParameters)
 
      // execute sequencer handler
      MUTEX_SDCARD_TAKE;
-     SEQ_Handler();
+     seqHandler();
      MUTEX_SDCARD_GIVE;
 
      // send timestamped MIDI events

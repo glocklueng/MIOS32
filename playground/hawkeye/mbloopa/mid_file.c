@@ -27,6 +27,7 @@
 #include "mid_file.h"
 #include "seq.h"
 #include "screen.h"
+#include "loopa.h"
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -45,26 +46,15 @@
 // use "<dir>/<subdir>/" to reach a subdirectory in <dir>, etc..
 
 #define MID_FILES_PATH ""
-
-// max path length
-#define MAX_PATH 100
-
+#define MAX_PATH 64
 
 /////////////////////////////////////////////////////////////////////////////
 // Local variables
 /////////////////////////////////////////////////////////////////////////////
 
-// the file position and length
-static u32 midifile_pos;
-static u32 midifile_len;
-static char ui_midifile_name[MAX_PATH];
-
-// MIDI file references
-static file_t midifile_fi;
-
 // for recording
 static u8 record_mode;
-static char record_filename[13];
+static char record_filename[40];
 static u32 record_last_tick;
 static mios32_midi_port_t record_last_port;
 static mios32_midi_package_t record_last_event;
@@ -81,203 +71,10 @@ static u8 record_sysex_buffer[SYSEX_BUFFER_SIZE];
 /////////////////////////////////////////////////////////////////////////////
 s32 MID_FILE_Init(u32 mode)
 {
-  // initial midifile name and size
-  ui_midifile_name[0] = 0;
-  midifile_len = 0;
-
   // recording disabled
   record_mode = 0;
 
   return 0; // no error
-}
-
-
-/////////////////////////////////////////////////////////////////////////////
-// Returns the filename of the .mid file for the user interface
-// Contains an error message if file wasn't loaded correctly
-/////////////////////////////////////////////////////////////////////////////
-char *MID_FILE_UI_NameGet(void)
-{
-  return ui_midifile_name;
-}
-
-
-/////////////////////////////////////////////////////////////////////////////
-// Clears the current midi file name
-/////////////////////////////////////////////////////////////////////////////
-s32 MID_FILE_UI_NameClear(void)
-{
-  ui_midifile_name[0] = 0;
-  return 0; // no error
-}
-
-/////////////////////////////////////////////////////////////////////////////
-// Returns the .mid file next to the given filename
-// returns < 0 on errors
-// returns 1 if a new file has been found, otherwise 0
-/////////////////////////////////////////////////////////////////////////////
-s32 MID_FILE_FindNext(char *filename, char *next_file)
-{
-  s32 status;
-
-  MUTEX_SDCARD_TAKE;
-  status = FILE_FindNextFile(MID_FILES_PATH,
-              filename,
-              "MID",
-              next_file);
-  MUTEX_SDCARD_GIVE;
-
-  if( status < 0 ) {
-    DEBUG_MSG("SDCard Err!");
-  } else if( status == 0 ) {
-    DEBUG_MSG("No .MID File");
-  } else {
-    DEBUG_MSG(NULL);
-  }
-
-  return status;
-}
-
-
-/////////////////////////////////////////////////////////////////////////////
-// Returns the .mid file previous to the given filename
-// returns < 0 on errors
-// returns 1 if a new file has been found, otherwise 0
-/////////////////////////////////////////////////////////////////////////////
-s32 MID_FILE_FindPrev(char *filename, char *prev_file)
-{
-  s32 status;
-
-  MUTEX_SDCARD_TAKE;
-  status = FILE_FindPreviousFile(MID_FILES_PATH,
-             filename,
-             "MID",
-             prev_file);
-  MUTEX_SDCARD_GIVE;
-
-  if( status < 0 ) {
-    DEBUG_MSG("SDCard Err!");
-  } else if( status == 0 ) {
-    DEBUG_MSG("No .MID File");
-  } else {
-    DEBUG_MSG(NULL);
-  }
-
-  return status;
-}
-
-
-/////////////////////////////////////////////////////////////////////////////
-// Open a .mid file with given filename
-/////////////////////////////////////////////////////////////////////////////
-s32 MID_FILE_open(char *filename)
-{
-   char filepath[MAX_PATH];
-   strncpy(filepath, MID_FILES_PATH, MAX_PATH);
-   strncat(filepath, filename, MAX_PATH);
-
-   MUTEX_SDCARD_TAKE;
-   s32 status = FILE_ReadOpen(&midifile_fi, filepath);
-   FILE_ReadClose(&midifile_fi); // close again - file will be reopened by read handler
-   MUTEX_SDCARD_GIVE;
-
-   if( status < 0 )
-   {
-      DEBUG_MSG("[MID_FILE] failed to open file, status: %d\n", status);
-      ui_midifile_name[0] = 0; // disable file
-   }
-   else
-   {
-      // got it
-      midifile_pos = 0;
-      midifile_len = midifile_fi.fsize;
-
-      strncpy(ui_midifile_name, filepath, MAX_PATH);
-      ui_midifile_name[MAX_PATH-1] = 0;
-
-      DEBUG_MSG("[MID_FILE] opened '%s' of length %u\n", filepath, midifile_len);
-   }
-
-   return status;
-}
-
-
-/////////////////////////////////////////////////////////////////////////////
-// Close open .mid file (hawkeye extension)
-/////////////////////////////////////////////////////////////////////////////
-s32 MID_FILE_close()
-{
-   MUTEX_SDCARD_TAKE;
-   s32 status = FILE_ReadClose(&midifile_fi); // close again - file will be reopened by read handler
-   MUTEX_SDCARD_GIVE;
-
-   return status;
-}
-
-/////////////////////////////////////////////////////////////////////////////
-// reads <len> bytes from the .mid file into <buffer>
-// returns number of read bytes
-/////////////////////////////////////////////////////////////////////////////
-u32 MID_FILE_read(void *buffer, u32 len)
-{
-   s32 status;
-
-   if( !ui_midifile_name[0] )
-      return FILE_ERR_NO_FILE;
-
-   MUTEX_SDCARD_TAKE;
-   if ((status=FILE_ReadReOpen(&midifile_fi)) >= 0)
-   {
-      status = FILE_ReadBuffer(buffer, len);
-      FILE_ReadClose(&midifile_fi);
-   }
-   MUTEX_SDCARD_GIVE;
-
-   return (status >= 0) ? len : 0;
-}
-
-
-/////////////////////////////////////////////////////////////////////////////
-// returns 1 if end of file reached
-/////////////////////////////////////////////////////////////////////////////
-s32 MID_FILE_eof(void)
-{
-   if( midifile_pos >= midifile_len || !FILE_SDCardAvailable() )
-     return 1; // end of file reached or SD card disconnected
-
-   return 0;
-}
-
-
-/////////////////////////////////////////////////////////////////////////////
-// sets file pointer to a specific position
-// returns -1 if end of file reached
-/////////////////////////////////////////////////////////////////////////////
-s32 MID_FILE_seek(u32 pos)
-{
-   s32 status;
-
-   if (!ui_midifile_name[0])
-      return -1; // end of file reached
-
-   midifile_pos = pos;
-
-   MUTEX_SDCARD_TAKE;
-
-   if( midifile_pos >= midifile_len )
-      status = -1; // end of file reached
-   else
-   {
-      if( (status=FILE_ReadReOpen(&midifile_fi)) >= 0 )
-      {
-         status = FILE_ReadSeek(pos);
-         FILE_ReadClose(&midifile_fi);
-      }
-   }
-
-   MUTEX_SDCARD_GIVE;
-
-   return status;
 }
 
 
@@ -395,23 +192,14 @@ s32 MID_FILE_Receive(mios32_midi_port_t port, mios32_midi_package_t package)
    if (!MID_FILE_RecordingEnabled())
       return 0;
 
-   // port enabled?
-   if (port == DEFAULT)
-   {
-      if (!seq_rec_enable_din)
-         return 0;
-   }
-   else
-   {
-      // USB0/1/2/3, UART0/1/2/3, IIC0/1/2/3, OSC0/1/2/3
-      if (port < USB0 || port > OSC3)
-         return 0;
+   // USB0/1/2/3, UART0/1/2/3, IIC0/1/2/3, OSC0/1/2/3
+   if (port < USB0 || port > OSC3)
+      return 0;
 
-      u16 port_ix = ((port-USB0) >> 2) | (port & 0x03);
-      u16 port_mask = (1 << port_ix);
-      if (!(seq_rec_enabled_ports & port_mask))
-         return 0;
-   }
+   u16 port_ix = ((port-USB0) >> 2) | (port & 0x03);
+   u16 port_mask = (1 << port_ix);
+   if (!(seqRecEnabledPorts_ & port_mask))
+      return 0;
 
    // ignore realtime events (like MIDI clock)
    if( package.evnt0 >= 0xf8 )
@@ -454,6 +242,8 @@ s32 MID_FILE_Receive(mios32_midi_port_t port, mios32_midi_package_t package)
       if (delta < 0)
          delta = 0;
 
+      DEBUG_MSG("rec: %d delta ticks", delta);
+
       MUTEX_SDCARD_TAKE;
       record_trk_size += MID_FILE_WriteVarLen(delta);
       record_trk_size += MID_FILE_WriteWord(word, num_bytes);
@@ -480,18 +270,13 @@ s32 MID_FILE_ReceiveSysEx(mios32_midi_port_t port, u8 midi_in)
     return 0;
 
   // port enabled?
-  if( port == DEFAULT ) {
-    if( !seq_rec_enable_din )
-      return 0;
-  } else {
-    // USB0/1/2/3, UART0/1/2/3, IIC0/1/2/3, OSC0/1/2/3
-    if( port < USB0 || port > OSC3 )
-      return 0;
-    u16 port_ix = ((port-USB0) >> 2) | (port & 0x03);
-    u16 port_mask = (1 << port_ix);
-    if( !(seq_rec_enabled_ports & port_mask) )
-      return 0;
-  }
+  // USB0/1/2/3, UART0/1/2/3, IIC0/1/2/3, OSC0/1/2/3
+  if( port < USB0 || port > OSC3 )
+     return 0;
+  u16 port_ix = ((port-USB0) >> 2) | (port & 0x03);
+  u16 port_mask = (1 << port_ix);
+  if (!(seqRecEnabledPorts_ & port_mask))
+     return 0;
 
   // ignore realtime events (like MIDI clock)
   if( midi_in >= 0xf8 )
@@ -570,10 +355,10 @@ s32 MID_FILE_SetRecordMode(u8 enable)
       u32 rec_num = 0;
       while (1)
       {
-         ++rec_num;
-         sprintf(record_filename, "REC%d.MID", rec_num);
+         sprintf(record_filename, "/SESSIONS/%04d/C_%d-%04d.MID", sessionNumber_, selectedClipNumber_, rec_num);
          if( (status=FILE_FileExists(record_filename)) <= 0 )
             break;
+         ++rec_num;
       }
 
       if (status < 0)
@@ -586,8 +371,8 @@ s32 MID_FILE_SetRecordMode(u8 enable)
       }
       else
       {
-         strcpy(screenMode, "REC");
-         strcpy(screenFile, record_filename);
+         screenSetClipRecording(selectedClipNumber_, 1);
+
          DEBUG_MSG("[MID_FILE] Recording to '%s' started\n", record_filename);
          // write file header
          u32 header_size = 6;
@@ -603,12 +388,14 @@ s32 MID_FILE_SetRecordMode(u8 enable)
          status |= MID_FILE_WriteWord(record_trk_size, 4); // Placeholder
 
          // set initial BPM
-         record_trk_size += MID_FILE_WriteVarLen(0); // initial delta
+         record_trk_size += MID_FILE_WriteVarLen(0);     // initial delta
          record_trk_size += MID_FILE_WriteWord(0xff, 1); // meta event
          record_trk_size += MID_FILE_WriteWord(0x51, 1); // set tempo
          record_trk_size += MID_FILE_WriteVarLen(3);     // 3 bytes
          u32 tempo_us = (u32)(1E6 / (SEQ_BPM_EffectiveGet() / 60.0));
          record_trk_size += MID_FILE_WriteWord(tempo_us, 3);
+
+         DEBUG_MSG("[MID_FILE] Record header written\n");
       }
 
    }
@@ -636,7 +423,7 @@ s32 MID_FILE_SetRecordMode(u8 enable)
       // stop recording
       status |= FILE_WriteClose();
 
-      if( record_trk_size )
+      if (record_trk_size)
       {
          // switch back to first byte of track and write final track size
          if ((status=FILE_WriteOpen(record_filename, 0)) < 0)
@@ -644,19 +431,20 @@ s32 MID_FILE_SetRecordMode(u8 enable)
             DEBUG_MSG("[MID_FILE] Failed to open %s again, status: %d\n", record_filename, status);
             DEBUG_MSG("SDCard Err!");
             status = -3; // file re-open error
-         } else
+         }
+         else
          {
+            // Write successful
+
             status |= FILE_WriteSeek(record_trk_header_filepos + 4);
             status |= MID_FILE_WriteWord(record_trk_size, 4);
             status |= FILE_WriteClose();
 
-            // take over new filename, but pause sequencer
-            SEQ_SetPauseMode(1);
-            SEQ_PlayFile(record_filename);
-            /// MIDIO_FILE_StatusMsgSet(NULL);
+            loadClip(selectedClipNumber_);
          }
       }
 
+      screenSetClipRecording(selectedClipNumber_, 0);
       DEBUG_MSG("[MID_FILE] Recording to '%s' stopped. Track size: %d bytes\n", record_filename, record_trk_size);
    }
 
@@ -669,6 +457,8 @@ s32 MID_FILE_SetRecordMode(u8 enable)
       DEBUG_MSG("SDCard Err!");
       SEQ_BPM_Stop();
    }
+
+   DEBUG_MSG("SetRecord out status: %d", status);
 
    return status;
 }

@@ -9,7 +9,6 @@
 #include <app_lcd.h>
 
 #include "gfx_resources.h"
-#include "seq.h"
 #include "voxelspace.h"
 
 
@@ -20,16 +19,12 @@
 
 u8 screen[64][128];             // Screen buffer [y][x]
 
-char screenMode[16] = "";
-char screenFile[16] = "";
-u16 screenPosBar = 0;
-u16 screenPosStep = 0;
-
 u8 screenShowLoopaLogo_;
-u8 screenClipSelected_[8];
-u8 screenClipLooped_[8];
+u8 screenClipNumberSelected_ = 0;
+s8 screenRecordingClipNumber_ = -1;
 u16 screenClipStepPosition_[8];
 u16 screenClipStepLength_[8];
+u32 screenSongStep_ = 0;
 
 unsigned char* fontptr_ = (unsigned char*) fontsmall_pixdata;
 u16 fontchar_bytewidth_ = 3;    // bytes to copy for a line of character pixel data
@@ -153,30 +148,43 @@ void printFormattedString(int xPixCoord /* even! */, int yPixCoord, const char* 
 
 /**
  * Display a loopa slot time indicator
- * Format: [clipPos:clipLength] for a looped track, or
- *         |clipPos:clipLength| for a oneshot track
- *         times are in quarternotes
+ * Format: [clipPos:clipLength]
+ *         times are in steps/quarternotes
  *
  *         the time indicator will be rendered inverted, if this is the selected clip/active clip
  *         the display position depends on the slot number, slot #0 is upper left, slot #7 is lower right
  *
  */
-void displayClipPosition(u8 slotNumber, u8 isSelected, u8 isLooped, u16 stepPos, u16 stepLength)
+void displayClipPosition(u8 clipNumber)
 {
    char buffer[16];
 
-   u8 loopStartChar = isLooped ? ':' : '<';
-   u8 loopEndChar = isLooped ? ';' : '=';
+   u8 loopStartChar = '<';
+   u8 loopEndChar = '=';
 
-   if (stepLength > 999)
-      sprintf((char *)buffer, "%c%04d>%4d%c", loopStartChar, stepPos, stepLength, loopEndChar);
-   else if (stepLength > 99)
-      sprintf((char *)buffer, " %c%03d>%3d%c", loopStartChar, stepPos, stepLength, loopEndChar);
-   else if (stepLength > 9)
-      sprintf((char *)buffer, "  %c%02d>%2d%c", loopStartChar, stepPos, stepLength, loopEndChar);
+   u16 stepLength = screenClipStepLength_[clipNumber];
+   u16 stepPos = screenClipStepPosition_[clipNumber];
+   u8 isSelected = (clipNumber == screenClipNumberSelected_);
+   u8 isRecording = (clipNumber == screenRecordingClipNumber_);
 
-   u8 xPixCoord = (slotNumber % 4) * 64;
-   u8 yPixCoord = slotNumber < 4 ? 0 : 56;
+   if (!isRecording)
+   {
+      if (stepLength == 0)
+         sprintf((char *)buffer, "           ");
+      else if (stepLength > 999)
+         sprintf((char *)buffer, "%c%04d>%4d%c", loopStartChar, stepPos, stepLength, loopEndChar);
+      else if (stepLength > 99)
+         sprintf((char *)buffer, " %c%03d>%3d%c ", loopStartChar, stepPos, stepLength, loopEndChar);
+      else if (stepLength > 9)
+         sprintf((char *)buffer, "  %c%02d>%2d%c  ", loopStartChar, stepPos, stepLength, loopEndChar);
+   }
+   else
+   {
+      sprintf((char *)buffer, ":: %05d ;;", screenSongStep_);
+   }
+
+   u8 xPixCoord = (clipNumber % 4) * 64;
+   u8 yPixCoord = clipNumber < 4 ? 0 : 56;
    u8 fontHeight = 7;
    u8 fontByteWidth = 3;
    u8 fontLineByteWidth = 16*3;
@@ -262,19 +270,33 @@ void screenShowLoopaLogo(u8 showLogo)
  */
 void screenSetClipSelected(u8 clipNumber)
 {
-   memset(&screenClipSelected_, 0, sizeof(screenClipSelected_));
-   screenClipSelected_[clipNumber] = 1;
+   screenClipNumberSelected_ = clipNumber;
 }
 // ----------------------------------------------------------------------------------------
 
 
 /**
- * Set, if a clip is looped
+ * Set the currently recorded-to clip
  *
  */
-void screenSetClipLooped(u8 clipNumber, u8 isLooped)
+void screenSetClipRecording(u8 clipNumber, u8 recordingActiveFlag)
 {
-   screenClipLooped_[clipNumber] = isLooped;
+   if (recordingActiveFlag)
+      screenRecordingClipNumber_ = clipNumber;
+   else
+      screenRecordingClipNumber_ = -1;
+}
+// ----------------------------------------------------------------------------------------
+
+
+/**
+ * Set the length of a clip
+ *
+ */
+void screenSetClipLength(u8 clipNumber, u16 stepLength)
+{
+   DEBUG_MSG("[screenSetClipLength] clip: %d steplength: %d", clipNumber, stepLength);
+   screenClipStepLength_[clipNumber] = stepLength;
 }
 // ----------------------------------------------------------------------------------------
 
@@ -283,16 +305,28 @@ void screenSetClipLooped(u8 clipNumber, u8 isLooped)
  * Set the position info of a clip
  *
  */
-void screenSetClipPosition(u8 clipNumber, u8 stepPosition, u8 stepLength)
+void screenSetClipPosition(u8 clipNumber, u16 stepPosition)
 {
    screenClipStepPosition_[clipNumber] = stepPosition;
-   screenClipStepLength_[clipNumber] = stepLength;
 }
 // ----------------------------------------------------------------------------------------
 
 
-// Display the current screen buffer
-//
+/**
+ * Set the global song step position (e.g. for displaying the recording-clip step)
+ *
+ */
+void screenSetSongStep(u32 stepPosition)
+{
+   screenSongStep_ = stepPosition;
+}
+// ----------------------------------------------------------------------------------------
+
+
+/**
+ * Display the current screen buffer
+ *
+ */
 void display(void)
 {
    u8 i, j;
@@ -312,8 +346,9 @@ void display(void)
 
       // printFormattedString(0, 51, "%s %s %u:%u", screenMode, screenFile, screenPosBar, screenPosStep % 16);
 
-      for (i = 0; i < 8; i++)
-         displayClipPosition(i, screenClipSelected_[i], screenClipLooped_[i], screenClipStepPosition_[i], screenClipStepLength_[i]);
+      u8 clip;
+      for (clip = 0; clip < 8; clip++)
+         displayClipPosition(clip);
    }
 
    // Push screen buffer
@@ -342,9 +377,11 @@ void display(void)
 // ----------------------------------------------------------------------------------------
 
 
-// Render test screen, one half is "full on" for flicker tests
-// one half contains a color gradient pattern
-//
+/**
+ * Render test screen, one half is "full on" for flicker tests
+ * one half contains a color gradient pattern
+ *
+ */
 void testScreen()
 {
   u16 x = 0;

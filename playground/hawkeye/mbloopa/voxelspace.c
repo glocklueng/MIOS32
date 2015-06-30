@@ -18,14 +18,14 @@ u8 field[128][128];             // Heightfield [y][x]
 
 u8 screen[64][128];             // Screen buffer [y][x]
 u16 mult1dot5[64];              // multiplication/division precalculated tables
-u16 notedraw[128];              // Current note on/note off note draw line (vertical, in time)
+u8 notedraw[128];               // Current note on/note off note draw line (vertical, in time)
 
 
 // Limits a value to 0...255
 //
 int limit(int x)
 {
-  return x < 0 ? 0 : (x > 255 ? 255 : x);
+   return x < 0 ? 0 : (x > 255 ? 255 : x);
 }
 // -------------------------------------------------------------------------------------------
 

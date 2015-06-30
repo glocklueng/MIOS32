@@ -12,11 +12,11 @@
 
 // The boot message which is print during startup and returned on a SysEx query
 #define MIOS32_LCD_BOOT_MSG_DELAY 0 // we delay the boot and print a message inside the app
-#define MIOS32_LCD_BOOT_MSG_LINE1 "MBLOOPA"
-#define MIOS32_LCD_BOOT_MSG_LINE2 "(C) 2015 Hawkeye"
+#define MIOS32_LCD_BOOT_MSG_LINE1 "MBLoopA"
+#define MIOS32_LCD_BOOT_MSG_LINE2 "(C) 2015 Hawkeye and TK."
 
 // define a unique VID/PID for this application
-#define MIOS32_USB_PRODUCT_STR  "MBLOOPA"
+#define MIOS32_USB_PRODUCT_STR  "MBLoopA"
 
 // enable 4 USB ports
 #define MIOS32_USB_MIDI_NUM_PORTS 4
@@ -64,7 +64,7 @@
 #define AINSER_NUM_MODULES 0
 
 // reserved memory for FreeRTOS pvPortMalloc function
-#define MIOS32_HEAP_SIZE 32*1024
+#define MIOS32_HEAP_SIZE 16*1024
 
 
 // combine MIDI router with SEQ module

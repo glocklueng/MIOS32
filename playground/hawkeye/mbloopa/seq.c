@@ -224,7 +224,7 @@ s32 SEQ_Handler(void)
 
       // note: don't remove any request check - clocks won't be propagated
       // so long any Stop/Cont/Start/SongPos event hasn't been flagged to the sequencer
-      if( SEQ_BPM_ChkReqStop() )
+      if (SEQ_BPM_ChkReqStop())
       {
          SEQ_PlayOffEvents();
          MID_FILE_SetRecordMode(0);
@@ -232,7 +232,7 @@ s32 SEQ_Handler(void)
          MIDI_ROUTER_SendMIDIClockEvent(0xfc, 0);
       }
 
-      if( SEQ_BPM_ChkReqCont() )
+      if (SEQ_BPM_ChkReqCont())
       {
          // release pause mode
          SEQ_SetPauseMode(0);
@@ -240,7 +240,7 @@ s32 SEQ_Handler(void)
          MIDI_ROUTER_SendMIDIClockEvent(0xfb, 0);
       }
 
-      if( SEQ_BPM_ChkReqStart() )
+      if (SEQ_BPM_ChkReqStart())
       {
          MIDI_ROUTER_SendMIDIClockEvent(0xfa, 0);
          SEQ_Reset(1);
@@ -248,14 +248,14 @@ s32 SEQ_Handler(void)
       }
 
       u16 new_song_pos;
-      if( SEQ_BPM_ChkReqSongPos(&new_song_pos) )
+      if (SEQ_BPM_ChkReqSongPos(&new_song_pos))
       {
          SEQ_SongPos(new_song_pos);
       }
 
 
       u32 bpm_tick;
-      if( SEQ_BPM_ChkReqClk(&bpm_tick) > 0 )
+      if (SEQ_BPM_ChkReqClk(&bpm_tick) > 0)
       {
          SEQ_UpdateBeatLEDs(bpm_tick);
          if (!MID_FILE_RecordingEnabled())
@@ -267,10 +267,10 @@ s32 SEQ_Handler(void)
             }
 
             // set initial BPM according to MIDI spec
-            if( bpm_tick == 0 && !seq_clk_locked )
+            if (bpm_tick == 0 && !seq_clk_locked)
                SEQ_BPM_Set(120.0);
 
-            if( bpm_tick == 0 ) // send start (again) to synchronize with new MIDI songs
+            if (bpm_tick == 0) // send start (again) to synchronize with new MIDI songs
                MIDI_ROUTER_SendMIDIClockEvent(0xfa, 0);
 
             again = 1; // check all requests again after execution of this part

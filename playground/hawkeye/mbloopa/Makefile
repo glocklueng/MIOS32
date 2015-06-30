@@ -21,7 +21,6 @@ THUMB_SOURCE    = app.c \
 	hardware.c \
 	mid_file.c \
 	mid_parser.c \
-	seq.c \
 	terminal.c \
 	loopa.c \
 	screen.c \
