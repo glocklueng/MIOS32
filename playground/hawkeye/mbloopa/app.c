@@ -162,7 +162,7 @@ void APP_Init(void)
   enc_config.cfg.speed_par = 0;
   MIOS32_ENC_ConfigSet(1, enc_config);
 
-  // precalc voxel variables
+  // precalc voxel field for startup demo
   calcField();
 
   // start tasks

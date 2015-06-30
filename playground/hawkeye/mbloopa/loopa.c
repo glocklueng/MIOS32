@@ -69,13 +69,17 @@ const int PREFETCH_TIME_MS = 100;
 
 // --- Global vars ---
 
-static s32 (*clipPlayEventCallback)(u8 clipNumber, mios32_midi_package_t midi_package, u32 tick) = 0; // fetchClipEvents() callback
+static s32 (*clipPlayEventCallback)(u8 clipNumber, mios32_midi_package_t midi_package, u32 tick) = 0;     // fetchClipEvents() callback
+static s32 (*clipMetaEventCallback)(u8 clipNumber, u8 meta, u32 len, u8 *buffer, u32 tick) = 0; // fetchClipEvents() callback
+static u8 meta_buffer[MID_PARSER_META_BUFFER_SIZE];
 
 u16 sessionNumber_ = 0;         // currently active session number (directory e.g. /SESSIONS/0001)
 u8 baseView_ = 0;               // if not in baseView, we are in single clipView
 u8 displayMode2d_ = 0;          // if not in 2d display mode, we are rendering voxelspace
 u8 selectedClipNumber_ = 0;     // currently active or last active clip number (1-8)
 u16 beatLoopSteps_ = 16;        // number of steps for one beatloop (adjustable)
+u8 isRecording_ = 0;            // set, if currently recording
+u8 stopRecordingRequest_ = 0;   // if set, the sequencer will stop recording at an even "beatLoopStep" interval, to create loopable clips
 
 u16 seqPlayEnabledPorts_;
 u16 seqRecEnabledPorts_;
@@ -388,6 +392,9 @@ s32 clipFileOpen(u8 clipNumber)
       chunk_len = clipReadWord(clipNumber, 4);
       file_pos += 4;
 
+      DEBUG_MSG("[clipFileOpen] chunk len %u", chunk_len);
+
+
       if (clipFileEOF(clipNumber))
          break; // unexpected: end of file reached
 
@@ -432,6 +439,8 @@ s32 clipFileOpen(u8 clipNumber)
             ++num_tracks;
 
             DEBUG_MSG("[clipFileOpen] Found Track %d with size: %u, initial_tick: %u, starting at tick: %u\n\r", num_tracks, chunk_len + num_bytes, mt->initial_tick, mt->tick);
+
+            break;
          }
 
          // switch to next track
@@ -472,17 +481,28 @@ s32 clipFileOpen(u8 clipNumber)
  */
 static s32 countPlayEvent(u8 clipNumber, mios32_midi_package_t midi_package, u32 tick)
 {
-   //if (clipEventNumber_[clipNumber] >= MAX_EVENTS)
-   //   return 0;
-   // clipEvent* ce = &clipEvents_[clipNumber][clipEventNumber_[clipNumber]];
-   // ce->tick = tick;
-   // ce->midi_package = midi_package;
-
    if (midi_package.event == NoteOff || midi_package.velocity == 0)
       DEBUG_MSG("[countPlayEvent] @tick %u note off", tick);
    else if (midi_package.event == NoteOn)
       DEBUG_MSG("[countPlayEvent] @tick %u note on", tick);
 
+   clipEventNumber_[clipNumber]++;
+
+   if (tick > clipTicks_[clipNumber])
+      clipTicks_[clipNumber] = tick;
+
+   return 0;
+}
+// -------------------------------------------------------------------------------------------------
+
+
+/**
+ * Callback method to count a loaded play event in memory.
+ * Triggered by MID_PARSER_FetchEvents during loadClip
+ *
+ */
+static s32 countMetaEvent(u8 clipNumber, u8 meta, u32 len, u8 *buffer, u32 tick)
+{
    clipEventNumber_[clipNumber]++;
 
    if (tick > clipTicks_[clipNumber])
@@ -586,10 +606,42 @@ s32 clipFetchEvents(u8 clipNumber, u32 tick_offset, u32 num_ticks)
       {
          // Meta Event
          u8 meta;
-         mt->file_pos += clipFileRead(clipNumber, &meta, 1);
-         clipReadVarLen(clipNumber, &mt->file_pos);
+         mt->file_pos += clipFileRead(clipNumber, &meta, 1); // Meta type 1 byte, e.g. 0x2f "EndOfTrack"
+         u32 length = (u32)clipReadVarLen(clipNumber, &mt->file_pos);
 
-         // We ignore meta events for now
+         if (clipMetaEventCallback != NULL)
+         {
+            u32 buflen = length;
+            if (buflen > (MID_PARSER_META_BUFFER_SIZE-1))
+            {
+               buflen = MID_PARSER_META_BUFFER_SIZE - 1;
+               DEBUG_MSG("[MID_PARSER:%d:%u] Meta Event 0x%02x with %u bytes - cut at %u bytes!\n\r", clipNumber, mt->tick, meta, length, buflen);
+            }
+            else
+            {
+               DEBUG_MSG("[MID_PARSER:%d:%u] Meta Event 0x%02x with %u bytes\n\r", clipNumber, mt->tick, meta, buflen);
+            }
+
+            if (buflen)
+            {
+               // copy bytes into buffer
+               mt->file_pos += clipFileRead(clipNumber, meta_buffer, buflen);
+
+               if (length > buflen)
+               {
+                  // no free memory: dummy reads
+                  int i;
+                  u8 dummy;
+                  for(i=buflen; i<length; ++i)
+                     mt->file_pos += clipFileRead(clipNumber, &dummy, 1);
+               }
+            }
+
+            meta_buffer[buflen] = 0; // terminate with 0 for the case that a string has been transfered
+
+            // -> forward to callback function
+            clipMetaEventCallback(clipNumber, meta, buflen, meta_buffer, mt->tick);
+         }
       }
       else
       {
@@ -673,6 +725,7 @@ void clipScan(u8 clipNumber)
 
    // Install "count-only" callback
    clipPlayEventCallback = countPlayEvent;
+   clipMetaEventCallback = countMetaEvent;
 
    clipFetchEvents(clipNumber, 0, 0xFFFFFFF);
 }
@@ -690,19 +743,18 @@ void loadClip(u8 clipNumber)
    clipFileOpen(clipNumber);
    clipScan(clipNumber);
 
-   // Goal: After this routine, the clip should be ready to play in the
-   //       loopa.c based sequencer code, muted or not, it should loop on demand
+   DEBUG_MSG("loadClip(): counted %d events and %d ticks (= %d steps) for clip %d.", clipEventNumber_[clipNumber], clipTicks_[clipNumber], tickToStep(clipTicks_[clipNumber]), clipNumber);
+
+   if (clipEventNumber_[clipNumber] < 3)
+   {
+      DEBUG_MSG("loadClip(): disabling clip: not enough events (%d events)", clipEventNumber_[clipNumber]);
+      clipTicks_[clipNumber] = 0;
+      clipEventNumber_[clipNumber] = 0;
+      clipFileAvailable_[clipNumber] = 0;
+   }
 
    screenSetClipLength(clipNumber, tickToStep(clipTicks_[clipNumber]));
    screenSetClipPosition(clipNumber, 0);
-
-   DEBUG_MSG("loadClip(): counted %d events and %d ticks (= %d steps) for clip %d.", clipEventNumber_[clipNumber], clipTicks_[clipNumber], tickToStep(clipTicks_[clipNumber]), clipNumber);
-
-   if (clipEventNumber_[clipNumber] < 2 || tickToStep(clipTicks_[clipNumber]) == 0)
-   {
-      DEBUG_MSG("loadClip(): disabling clip: not long enough (%d ticks) or not enough events (%d events)", clipTicks_[clipNumber], clipEventNumber_[clipNumber]);
-      clipFileAvailable_[clipNumber] = 0;
-   }
 
    // unmute available clip
    clipMute_[clipNumber] = clipFileAvailable_[clipNumber];
@@ -726,7 +778,7 @@ void loadSession(u16 newSessionNumber)
 
    selectedClipNumber_ = 0;
    screenSetClipSelected(selectedClipNumber_);
-
+   screenFormattedFlashMessage("Loaded Session %d", newSessionNumber);
 }
 // -------------------------------------------------------------------------------------------------
 
@@ -753,6 +805,8 @@ static void seqUpdateBeatLEDs(u32 bpm_tick);
 static s32  seqTick(u32 bpm_tick);
 static s32  hookMIDISendPackage(mios32_midi_port_t port, mios32_midi_package_t package);
 static s32  seqPlayEvent(u8 clipNumber, mios32_midi_package_t midi_package, u32 tick);
+static s32  seqIgnoreMetaEvent(u8 clipNumber, u8 meta, u32 len, u8 *buffer, u32 tick);
+
 
 
 /**
@@ -782,6 +836,7 @@ s32 seqInit()
 
    // install seqPlayEvent callback for clipFetchEvents()
    clipPlayEventCallback = seqPlayEvent;
+   clipMetaEventCallback = seqIgnoreMetaEvent;
 
    return 0; // no error
 }
@@ -870,16 +925,33 @@ s32 seqHandler(void)
    if (SEQ_BPM_ChkReqClk(&bpm_tick) > 0)
    {
       seqUpdateBeatLEDs(bpm_tick);
-      if (!MID_FILE_RecordingEnabled())
+
+      // set initial BPM according to MIDI spec
+      if (bpm_tick == 0 && !seqClkLocked)
+         SEQ_BPM_Set(120.0);
+
+      if (bpm_tick == 0) // send start (again) to synchronize with new MIDI songs
+         MIDI_ROUTER_SendMIDIClockEvent(0xfa, 0);
+
+      seqTick(bpm_tick);
+
+      // Perform synchronized recording stop (tracklength a multiple of beatsteps)
+      if (stopRecordingRequest_)
       {
-         // set initial BPM according to MIDI spec
-         if (bpm_tick == 0 && !seqClkLocked)
-            SEQ_BPM_Set(120.0);
+         if (tickToStep(bpm_tick) % beatLoopSteps_ == 0)
+         {
+            screenFormattedFlashMessage("Stopped Recording");
+            MID_FILE_SetRecordMode(0);
+            stopRecordingRequest_ = 0;
 
-         if (bpm_tick == 0) // send start (again) to synchronize with new MIDI songs
-            MIDI_ROUTER_SendMIDIClockEvent(0xfa, 0);
-
-         seqTick(bpm_tick);
+            SEQ_BPM_Stop();          // stop sequencer
+            MIOS32_DOUT_PinSet(led_armrecord, 0);
+         }
+         else
+         {
+            u8 remainSteps = 16 - (tickToStep(bpm_tick) % beatLoopSteps_);
+            screenFormattedFlashMessage("Stop Recording in %d", remainSteps);
+         }
       }
    }
 
@@ -979,7 +1051,7 @@ static s32 seqSongPos(u16 new_song_pos)
    seqPlayOffEvents();
 
    // restart song
-   MID_PARSER_RestartSong();
+   //MID_PARSER_RestartSong();
 
    // Rewind clips (they have been scanned for length before)
    u8 i;
@@ -1162,6 +1234,17 @@ static s32 seqPlayEvent(u8 clipNumber, mios32_midi_package_t midi_package, u32 t
 
 
 /**
+ * Ignore track meta events
+ *
+ */
+static s32 seqIgnoreMetaEvent(u8 clipNumber, u8 meta, u32 len, u8 *buffer, u32 tick)
+{
+   return 0;
+}
+// -------------------------------------------------------------------------------------------------
+
+
+/**
  * Realtime output hook: called exactly, when the MIDI scheduler has a package to send
  *
  */
@@ -1209,6 +1292,27 @@ static s32 hookMIDISendPackage(mios32_midi_port_t clipNumber, mios32_midi_packag
 
 
 /**
+ * Handle a stop request (with beatstep synced recording stop)
+ *
+ */
+void handleStop()
+{
+   if (!isRecording_)
+   {
+      screenFormattedFlashMessage("Stopped Playing");
+      SEQ_BPM_Stop();          // stop sequencer
+
+      MIOS32_DOUT_PinSet(led_startstop, 0);
+   }
+   else
+      stopRecordingRequest_ = 1;
+
+   isRecording_ = 0;
+}
+// -------------------------------------------------------------------------------------------------
+
+
+/**
  * Control the play/stop button function
  *
  */
@@ -1216,11 +1320,7 @@ s32 seqPlayStopButton(void)
 {
   if (SEQ_BPM_IsRunning())
   {
-     SEQ_BPM_Stop();          // stop sequencer
-     MID_FILE_SetRecordMode(0);
-
-     MIOS32_DOUT_PinSet(led_startstop, 0);
-     MIOS32_DOUT_PinSet(led_armrecord, 0);
+     handleStop();
   }
   else
   {
@@ -1234,6 +1334,8 @@ s32 seqPlayStopButton(void)
 
      MIOS32_DOUT_PinSet(led_startstop, 1);
      MIOS32_DOUT_PinSet(led_armrecord, 0);
+
+     screenFormattedFlashMessage("Play");
   }
 
   return 0; // no error
@@ -1249,11 +1351,7 @@ s32 seqRecStopButton(void)
 {
   if( SEQ_BPM_IsRunning() )
   {
-     SEQ_BPM_Stop();          // stop sequencer
-     MID_FILE_SetRecordMode(0);
-
-     MIOS32_DOUT_PinSet(led_startstop, 0);
-     MIOS32_DOUT_PinSet(led_armrecord, 0);
+     handleStop();
   }
   else
   {
@@ -1264,6 +1362,8 @@ s32 seqRecStopButton(void)
      // enter record mode
      if (MID_FILE_SetRecordMode(1) >= 0)
      {
+        isRecording_ = 1;
+
         // reset sequencer
         seqReset(1);
 
@@ -1272,6 +1372,8 @@ s32 seqRecStopButton(void)
 
         MIOS32_DOUT_PinSet(led_startstop, 1);
         MIOS32_DOUT_PinSet(led_armrecord, 1);
+
+        screenFormattedFlashMessage("Recording Clip %d", selectedClipNumber_ + 1);
      }
   }
 
@@ -1413,6 +1515,8 @@ void loopaEncoderTurned(s32 encoder, s32 incrementer)
       selectedClipNumber_ += incrementer;
       selectedClipNumber_ %= 8;
       screenSetClipSelected(selectedClipNumber_);
+
+      screenFormattedFlashMessage("Clip %d - %d Events", selectedClipNumber_ + 1, clipEventNumber_[selectedClipNumber_]);
    }
 }
 // -------------------------------------------------------------------------------------------------

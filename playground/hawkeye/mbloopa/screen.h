@@ -23,6 +23,9 @@ void screenSetClipPosition(u8 clipNumber, u16 stepPosition);
 // Set the global song step position (e.g. for displaying the recording-clip step)
 void screenSetSongStep(u32 stepPosition);
 
+// Flash a short-lived message to the center of the screen
+void screenFormattedFlashMessage(const char* format, ...);
+
 // Display the current screen buffer
 void display();
 

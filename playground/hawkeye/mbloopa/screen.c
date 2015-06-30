@@ -25,6 +25,8 @@ s8 screenRecordingClipNumber_ = -1;
 u16 screenClipStepPosition_[8];
 u16 screenClipStepLength_[8];
 u32 screenSongStep_ = 0;
+char screenFlashMessage_[40];
+u8 screenFlashMessageFrameCtr_;
 
 unsigned char* fontptr_ = (unsigned char*) fontsmall_pixdata;
 u16 fontchar_bytewidth_ = 3;    // bytes to copy for a line of character pixel data
@@ -324,6 +326,22 @@ void screenSetSongStep(u32 stepPosition)
 
 
 /**
+ * Flash a short-lived message to the center of the screen
+ *
+ */
+void screenFormattedFlashMessage(const char* format, ...)
+{
+   va_list args;
+
+   va_start(args, format);
+   vsprintf((char *)screenFlashMessage_, format, args);
+   screenFlashMessageFrameCtr_ = 10;
+}
+// ----------------------------------------------------------------------------------------
+
+
+
+/**
  * Display the current screen buffer
  *
  */
@@ -335,7 +353,7 @@ void display(void)
    {
       // Startup/initial session loading: Render the MBLoopa Logo
       setFontBold();
-      printFormattedString(92, 10, "MBLoopA");
+      printFormattedString(82, 10, "MBLoopA V1");
       setFontSmall();
       printFormattedString(64, 32, "(C) Hawkeye, TK. 2015");
       printFormattedString(52, 44, "MIDIbox hardware platform");
@@ -349,6 +367,18 @@ void display(void)
       u8 clip;
       for (clip = 0; clip < 8; clip++)
          displayClipPosition(clip);
+   }
+
+   if (screenFlashMessageFrameCtr_)
+   {
+      setFontNormal();
+      u8 len = strlen(screenFlashMessage_);
+      u8 xpos = 128 - len * 5;
+      u16 displacement = 10 - screenFlashMessageFrameCtr_;
+      displacement = (displacement * displacement) / 3;
+      printFormattedString(xpos, 26 - displacement, screenFlashMessage_);
+
+      screenFlashMessageFrameCtr_--;
    }
 
    // Push screen buffer
