@@ -439,8 +439,6 @@ s32 MID_FILE_SetRecordMode(u8 enable)
             status |= FILE_WriteSeek(record_trk_header_filepos + 4);
             status |= MID_FILE_WriteWord(record_trk_size, 4);
             status |= FILE_WriteClose();
-
-            loadClip(selectedClipNumber_);
          }
       }
 

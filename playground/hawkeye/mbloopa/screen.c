@@ -309,6 +309,7 @@ void screenSetClipLength(u8 clipNumber, u16 stepLength)
  */
 void screenSetClipPosition(u8 clipNumber, u16 stepPosition)
 {
+   DEBUG_MSG("[screenSetClipPosition] clip: %u stepPosition: %u", clipNumber, stepPosition);
    screenClipStepPosition_[clipNumber] = stepPosition;
 }
 // ----------------------------------------------------------------------------------------

@@ -80,6 +80,7 @@ u8 selectedClipNumber_ = 0;     // currently active or last active clip number (
 u16 beatLoopSteps_ = 16;        // number of steps for one beatloop (adjustable)
 u8 isRecording_ = 0;            // set, if currently recording
 u8 stopRecordingRequest_ = 0;   // if set, the sequencer will stop recording at an even "beatLoopStep" interval, to create loopable clips
+s8 reloadClipNumberRequest_ = -1; // if != -1, reload the given clip number after sequencer stop (usually, a track has been recorded, then!)
 
 u16 seqPlayEnabledPorts_;
 u16 seqRecEnabledPorts_;
@@ -940,12 +941,15 @@ s32 seqHandler(void)
       {
          if (tickToStep(bpm_tick) % beatLoopSteps_ == 0)
          {
+            SEQ_BPM_Stop();          // stop sequencer
+            MIOS32_DOUT_PinSet(led_armrecord, 0);
+
             screenFormattedFlashMessage("Stopped Recording");
             MID_FILE_SetRecordMode(0);
             stopRecordingRequest_ = 0;
 
-            SEQ_BPM_Stop();          // stop sequencer
-            MIOS32_DOUT_PinSet(led_armrecord, 0);
+            loadClip(reloadClipNumberRequest_);
+            reloadClipNumberRequest_ = -1;
          }
          else
          {
@@ -1127,7 +1131,10 @@ static void seqUpdateBeatLEDs(u32 bpm_tick)
       // New step, Update clip positions
       u8 i;
       for (i = 0; i < 8; i++)
+      {
+         DEBUG_MSG("[SetClipPos] clip: %u bpm_tick: %u clipTicks_[clip]: %u ticksPerStep: %u", i, bpm_tick, clipTicks_[i], ticksPerStep);
          screenSetClipPosition(i, ((u32) (bpm_tick % clipTicks_[i]) / ticksPerStep));
+      }
 
       // Set global song step (non-wrapping), e.g. for recording clips
       screenSetSongStep(bpm_tick / ticksPerStep);
@@ -1155,9 +1162,6 @@ static s32 seqTick(u32 bpm_tick)
    {
       if (clipFileAvailable_[clipNumber])
       {
-         // XXX: Use better loop calculation function for this, also in position display routine, based on clip start/end looppoints
-         // u32 clip_tick = bpm_tick % clipTicks_[clipNumber];
-
          // DEBUG_MSG("clip: %d bpm_tick: %d nextPrefetch: %d", clipNumber, bpm_tick, nextPrefetch_[clipNumber]);
 
          if (bpm_tick >= nextPrefetch_[clipNumber])
@@ -1362,6 +1366,7 @@ s32 seqRecStopButton(void)
      // enter record mode
      if (MID_FILE_SetRecordMode(1) >= 0)
      {
+        reloadClipNumberRequest_ = selectedClipNumber_;
         isRecording_ = 1;
 
         // reset sequencer
